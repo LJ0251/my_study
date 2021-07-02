@@ -148,7 +148,8 @@ public class Adpcm {
 	    return (short)(de_predsample << 4);
 }
 	/**
-	 * ADPCM 转换为  WAV
+	 * 
+	 * ADPCM 转换为  WAV: vox(ADPCM,没有Header的音频数据) to wav(PCM)
 	 * @param voxName 8000HZ 单通道 4bit	ADPCM
 	 * @param wavName 8000HZ 单通道 16bit	PCM
 	 * @param path
@@ -164,49 +165,19 @@ public class Adpcm {
             }
             FileOutputStream fos = new FileOutputStream(out);
             int length =fis.available();
-//            Decoder.writeHeard(fos,length);
-            // 源文件 长度  51372
-            // 目标文件长度 205584
-            // 现有文件长度 205526（还差 58 个字节，波型也不一致） 
             Header header = new Header(1, 8000, 16); 
             byte[] head = header.writeHeard(fos,length,"PCM");
             assert head.length == 44;
             fos.write(head);
-//			byte[] list_8bit_bytes = fis.available();
 			int len = fis.available();
 			byte[] list_8bit_bytes = new byte[len];
             int rLen = fis.read(list_8bit_bytes, 0, len);
             fis.close();
-//            List<Byte> list_16bit = new ArrayList<>();
-//            byte[] outBytestemp =new byte[len * 4];
-//            byte[] temp;
             for(int i=0;i<len;i++){
                 byte byte_i = list_8bit_bytes[i];  //# 1 bytes = 8bit
                 int high_4bit = (byte_i & 0xf0) >> 4; // # split high 4bit from 8bit
             	int low_4bit = byte_i & 0x0f; // # split low 4bit from 8bit
-/*
-//                # first sample
-                int sample_0 = high_4bit;
-                int sample_4bit_0;
-//                # unsigned to signed
-//                # 4bit : -2^4 ~ 2^(4-1)-1
-                if (sample_0 > 7){
-//                    sample_4bit_0 = sample_0 - 16;
-                    sample_4bit_0 = formatIndex(sample_0);
-                }else{
-                    sample_4bit_0 = sample_0;
-                }
-//                # second sample
-                int sample_1 = low_4bit;
-                int sample_4bit_1;
-//                # unsigned to signed
-                if (sample_1 > 7){
-//                    sample_4bit_1 = sample_1 - 16;
-                    sample_4bit_1 = formatIndex(sample_1);
-                }else{
-                    sample_4bit_1 = sample_1;
-                }*/
-//                # now decode
+
                 short tmpDeS16_0 = ADPCM_Decode(high_4bit);
                 short tmpDeS16_1 = ADPCM_Decode(low_4bit);
                 if(isBigEndian){
@@ -243,112 +214,15 @@ public class Adpcm {
 
 
 	/**
-	 * decode: vox(dialogic ADPCM,没有Header的音频数据) to wav(PCM)
+	 * decode: 
 	 * @param args
 	 */
 	public static void main(String[] args) {
-		//testVoice("win7_16bit_8k_mono.wav");
-		//testVoice("test20210627.wav");
 		
 		Adpcm a = new Adpcm();
 		a.convertAdpcmToWav("win7_16bit_8k_mono.adpcm", "test20210627.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
 //		a.convertAdpcmToImaADPCM("win7_16bit_8k_mono.adpcm", "test20210627_ADPCM.wav", "E:\\workSpace\\ADPCMVoice\\voice\\");
-		/*File in = new File("E:\\workSpace\\ADPCMVoice\\voice\\win7_16bit_8k_mono.adpcm");
-		File out = new File("E:\\workSpace\\ADPCMVoice\\voice\\test.wav");
-		try {
-			FileInputStream fis = new FileInputStream(in);
-			if(!out.exists()){
-            	out.createNewFile();
-            }
-            FileOutputStream fos = new FileOutputStream(out);
-            int length =fis.available();
-//            Decoder.writeHeard(fos,length);
-            Header header = new Header(1,8000,16);
-            header.writeHeard(fos,length,"PCM");
-//			byte[] list_8bit_bytes = fis.available();
-			int len = fis.available();
-			byte[] list_8bit_bytes = new byte[len];
-            int rLen = fis.read(list_8bit_bytes, 0, len);
-            fis.close();
-            List<Byte> list_16bit = new ArrayList<>();
-            byte[] outBytestemp =new byte[len * 4];
-            byte[] temp;
-            for(int i=0;i<len;i++){
-                byte byte_i = list_8bit_bytes[i];  //# 1 bytes = 8bit
-                int high_4bit = (byte_i & 0xf0) >> 4; // # split high 4bit from 8bit
-            	int low_4bit = byte_i & 0x0f; // # split low 4bit from 8bit
-
-//                # first sample
-                int sample_0 = high_4bit;
-                int sample_4bit_0;
-//                # unsigned to signed
-//                # 4bit : -2^4 ~ 2^(4-1)-1
-                if (sample_0 > 7){
-//                    sample_4bit_0 = sample_0 - 16;
-                    sample_4bit_0 = formatIndex(sample_0);
-                }else{
-                    sample_4bit_0 = sample_0;
-                }
-//                # second sample
-                int sample_1 = low_4bit;
-                int sample_4bit_1;
-//                # unsigned to signed
-                if (sample_1 > 7){
-//                    sample_4bit_1 = sample_1 - 16;
-                    sample_4bit_1 = formatIndex(sample_1);
-                }else{
-                    sample_4bit_1 = sample_1;
-                }
-//                # now decode
-                short tmpDeS16_0 = a.ADPCM_Decode(sample_0);
-                short tmpDeS16_1 = a.ADPCM_Decode(sample_1);                
-                fos.write(Hex2ByteDTX(tmpDeS16_0));
-                fos.write(Hex2ByteDTX(tmpDeS16_1));
-                outBytestemp[i] = temp[0];
-                outBytestemp[i+1] = temp[1];
-                temp = Hex2ByteDTX(tmpDeS16_1);
-                outBytestemp[i+2] = temp[0];
-                outBytestemp[i+3] = temp[1];
-            }
-		} catch (FileNotFoundException e) {
-			e.printStackTrace();
-		} catch (IOException e) {
-			e.printStackTrace();
-		}*/
-	
-	
+		
 	}
 	
-	private static int formatIndex(int sample_4bit_1){
-		switch(sample_4bit_1 & 0x07){
-	    	case 0x07:
-	    		sample_4bit_1 = 7;
-	    		break;
-	    	case 0x06:
-	    		sample_4bit_1 = 6;
-	    		break;
-	    	case 0x05:
-	    		sample_4bit_1 = 5;
-	    		break;
-	    	case 0x04:
-	    		sample_4bit_1 = 4;
-	    		break;
-	    	case 0x03:
-	    		sample_4bit_1 = 3;
-	    		break;
-	    	case 0x02:
-	    		sample_4bit_1 = 2;
-	    		break;
-	    	case 0x01:
-	    		sample_4bit_1 = 1;
-	    		break;
-	    	case 0x00:
-	    		sample_4bit_1 = 0;
-	    		break;
-	    	default:
-	    		sample_4bit_1 = 0;
-	    }
-		return sample_4bit_1;
-	}
-
 }
