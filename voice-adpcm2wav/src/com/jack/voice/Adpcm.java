@@ -152,8 +152,8 @@ public class Adpcm {
 	/**
 	 * 
 	 * ADPCM 转换为  WAV: vox(ADPCM,没有Header的音频数据) to wav(PCM)
-	 * @param voxName 8000HZ 单通道 4bit	ADPCM
-	 * @param wavName 8000HZ 单通道 16bit	PCM
+	 * @param voxName 8000HZ 单通道 4bit	ADPCM  案例使用是的voiceData下的 win7_4bit_8k_mono.adpcm
+	 * @param wavName 8000HZ 单通道 16bit	PCM    案例生成是的voiceData下的decode_16bit_8k_mono.wav
 	 * @param path
 	 * @param endian True : big-endian（暂时不可以用）  false : little-endian
 	 */
@@ -175,11 +175,13 @@ public class Adpcm {
 			byte[] list_8bit_bytes = new byte[len];
             int rLen = fis.read(list_8bit_bytes, 0, len);
             fis.close();
-            for(int i=0;i<len;i++){
+            fos.write(list_8bit_bytes[1]);
+            fos.write(list_8bit_bytes[0]);
+            for(int i=2;i<len;i++){
                 byte byte_i = list_8bit_bytes[i];  //# 1 bytes = 8bit
                 int high_4bit = (byte_i & 0xf0) >> 4; // # split high 4bit from 8bit
             	int low_4bit = byte_i & 0x0f; // # split low 4bit from 8bit
-
+                //now decode
                 short tmpDeS16_0 = ADPCM_Decode(high_4bit);
                 short tmpDeS16_1 = ADPCM_Decode(low_4bit);
                 if(isBigEndian){
@@ -200,132 +202,12 @@ public class Adpcm {
 	}
 
 	/**
-	 * 
-	 * @param inByte	 单通道  4bit	ADPCM 音频数据
-	 * @param outSamples 单通道 16bit	PCM 采样数据
-	 * @param len
-	 */
-	public void convertAdpcmToPCMNoHeader(byte[] inByte, short[] outSamples){
-		int j = 0;
-		for(int i=0;i<inByte.length;i++){
-            byte byte_i = inByte[i];  //# 1 bytes = 8bit
-            int high_4bit = (byte_i & 0xf0) >> 4; // # split high 4bit from 8bit
-        	int low_4bit = byte_i & 0x0f; // # split low 4bit from 8bit
-
-//            # now decode
-            short tmpDeS16_0 = ADPCM_Decode(high_4bit);
-            short tmpDeS16_1 = ADPCM_Decode(low_4bit);         
-            outSamples[j++] = tmpDeS16_0;
-            outSamples[j++] = tmpDeS16_1;
-        }
-	}
-
-	/**
-	 * ADPCM 转换为  WAV: vox(ADPCM,没有Header的音频数据) to IMA-ADPCM(wave 格式中的一种压缩格式)
-	 * @param voxName 8000HZ 单通道 4bit	ADPCM
-	 * @param wavName 8000HZ 单通道  4bit	IMA-ADPCM 音频数据
-	 * @param path
-	 */
-	public void convertAdpcmToImaADPCM(String voxName, String wavName,String path){
-		File in = new File(path+voxName);
-		File out = new File(path+wavName);
-		try {
-			if(!out.exists()){
-            	out.createNewFile();
-            }
-            FileOutputStream fos = new FileOutputStream(out);
-            FileInputStream fis = new FileInputStream(in);
-            int length = fis.available() * 2; // 采样个数 = 数据长度(字节) *2(1字节包含2个4bit的采样)
-            //组织 IMA-ADPCM的头
-            Header header = new Header(1, 8000 , 4);
-            byte[] head = header.writeHeard(length,"ADPCM");
-            fos.write(head);
-            //组织 IMA-ADPCM的头
-            
-            //初始化 IMA-ADPCM的 blockHead头
-			BlockHeader blockheard = new BlockHeader();
-			// 设置默认的index和rsv
-			blockheard.setBLOCKIndex(0);
-			blockheard.setBLOCKRSV(0);
-			//初始化 IMA-ADPCM的 blockHead头
-			
-			// 初始临时变量
-			int blockHeadNum = (int) (length/505);
-			int lastBlockSampleNum = length - blockHeadNum*505 -1;// 最后一个block的data包含的采样个数
-			if(length % 505 != 0){ // 存在不足一个block的情况
-				blockHeadNum += 1;
-			}
-			int currentNum = 1;
-			byte[] headBytes = new byte[1];
-			byte[] dataBytes = new byte[1];
-			int temp = 1;
-			boolean flag = true;//上一个 原始数据是否高4位、低4位 均已处理完成
-			int blockDataSie = 252;// block的data部分字节数
-			while(currentNum <= blockHeadNum){
-				int headSample = 0; // 存储在blockHead 中的采样数据
-				if(flag){
-					fis.read(headBytes);
-					headSample = (headBytes[0] & 0xf0) >> 4; // # split high 4bit from 8bit
-					temp = headBytes[0] & 0x0f; // # split low 4bit from 8bit
-					flag = !flag;
-				}else{
-					headSample = temp;
-					temp = 0;
-					flag = !flag;
-				}
-//	            # 解码第一个采样数据
-	            int tmpDeS16_0 = ADPCM_Decode(headSample);
-	            blockheard.setBLOCKPresample(tmpDeS16_0);
-                // blockheard 的 4 bytes()
-                fos.write(Header.HexByteBigEndian(blockheard.getBLOCKPresample(), 2));
-                fos.write(Header.HexByteBigEndian(blockheard.getBLOCKIndex(), 1));
-                fos.write(Header.HexByteBigEndian(blockheard.getBLOCKRSV(), 1));
-                // blockheard 的 4 bytes()
-                
-                // blockData 的 252字节数据处理
-                if(currentNum == blockHeadNum){// 最后一个不足252*2个采样的block处理
-                	blockDataSie = lastBlockSampleNum /= 2;
-	                if(lastBlockSampleNum % 2 != 0){
-	                	blockDataSie += 1;
-	                }
-	            }
-                
-                dataBytes = new byte[blockDataSie];
-        		fis.read(dataBytes);
-                if(!flag){
-            		fos.write(dataBytes);
-            	}else{ // 上一个字节数据 还有低4bit 数据待处理: 需要转换为高4位数据 与 下一个数据的结合为一个字节 
-            		for (int i = 0; i < dataBytes.length; i++) {
-            			temp = (byte)(temp << 4) | (byte)((dataBytes[i] & 0xf0) >> 4);
-            			fos.write(temp);
-            			temp = dataBytes[i] & 0x0f;// split 最后一个数据的 low 4bit from 8bit，下次循环使用
-					} 
-            	}
-	            // blockData 的 252字节数据处理
-	            
-	            // index++
-				currentNum++;
-			}
-
-		} catch (FileNotFoundException e) {
-			e.printStackTrace();
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-	
-	}
-
-
-	/**
-	 * decode: 
+	 *  解码的案例
 	 * @param args
 	 */
 	public static void main(String[] args) {
-		
 		Adpcm a = new Adpcm();
-//		a.convertAdpcmToWav("win7_16bit_8k_mono.adpcm", "test20210627.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
-		a.convertAdpcmToImaADPCM("win7_16bit_8k_mono.adpcm", "test20210627_ADPCM.wav", "E:\\workSpace\\ADPCMVoice\\voice\\");
-		
+		a.convertAdpcmToWav("win7_4bit_8k_mono.adpcm", "decode_16bit_8k_mono", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
 	}
 	
 }

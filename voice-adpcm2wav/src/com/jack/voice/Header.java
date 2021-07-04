@@ -214,9 +214,6 @@ public class Header {
 			if (otherBytes != 0) {
 				dataSize +=(otherBytes-4)*2+1;
 			}*/
-			/*
-			 * IMA-ADPCM head 格式说明 见附件说明
-			 */
 			dataSize = (int) length;
 			intPcm(dataSize);
 		}
@@ -262,7 +259,7 @@ public class Header {
 		this.setFormatAudioFormat(1);//PCM =1
 		this.setFormatBbyteRate(this.getFormatSampleRate() * this.getFormatNumChannels() * this.getFormatBitsPerSample() / 8);// = 16000;
 		this.setFormatBlockAlign(this.getFormatNumChannels() * this.getFormatBitsPerSample() / 8);// = 1;
-		this.setDataChunkSize(dataSize * 2);// 全部均为压缩数据。2 ：表示1个4位的ADPCM数据 解压后是1个16位的采样数据。即1个字节存储2个16位采样，则数据采样个数= dataSize字节*2
+		this.setDataChunkSize((dataSize-2) * 4 +2);// 第一个2 是前两个未压缩数据，*4 是1个字节解压为4个字节（2个16位数字），+2是加上未压缩数据
 		this.setChunkSize(this.getDataChunkSize() + 36);
 	}
 
