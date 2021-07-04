@@ -175,9 +175,17 @@ public class Adpcm {
 			byte[] list_8bit_bytes = new byte[len];
             int rLen = fis.read(list_8bit_bytes, 0, len);
             fis.close();
-            fos.write(list_8bit_bytes[1]);
-            fos.write(list_8bit_bytes[0]);
-            for(int i=2;i<len;i++){
+            //特殊注释，将这两个作为未压缩数据 进行解压，也能够正常播报
+            /**
+             * 如果将以下数据打开，则head中的该注释也需要打开
+             * 这说明wave文件在识别是否是正确格式时，主要对照的heade的参数以及具体文件的存储格式
+             * 目前，猜测，这两个字节数据应该不是未压缩数据。如果强制按照未压缩数据处理，最后文件中应该是噪音数据（因为采用较少，人耳无法感知）
+             */
+//            fos.write(list_8bit_bytes[1]);
+//            fos.write(list_8bit_bytes[0]);
+//            for(int i=2;i<len;i++){
+            //特殊注释，end
+            for(int i=0;i<len;i++){
                 byte byte_i = list_8bit_bytes[i];  //# 1 bytes = 8bit
                 int high_4bit = (byte_i & 0xf0) >> 4; // # split high 4bit from 8bit
             	int low_4bit = byte_i & 0x0f; // # split low 4bit from 8bit
@@ -207,7 +215,9 @@ public class Adpcm {
 	 */
 	public static void main(String[] args) {
 		Adpcm a = new Adpcm();
-		a.convertAdpcmToWav("win7_4bit_8k_mono.adpcm", "decode_16bit_8k_mono", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
+		a.convertAdpcmToWav("win7_4bit_8k_mono.adpcm", "decode_16bit_8k_mono.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
+		//打开特殊注释的转换结果
+//		a.convertAdpcmToWav("win7_4bit_8k_mono.adpcm", "decode_16bit_8k_mono_1.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
 	}
 	
 }

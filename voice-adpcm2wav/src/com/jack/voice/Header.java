@@ -259,7 +259,10 @@ public class Header {
 		this.setFormatAudioFormat(1);//PCM =1
 		this.setFormatBbyteRate(this.getFormatSampleRate() * this.getFormatNumChannels() * this.getFormatBitsPerSample() / 8);// = 16000;
 		this.setFormatBlockAlign(this.getFormatNumChannels() * this.getFormatBitsPerSample() / 8);// = 1;
-		this.setDataChunkSize((dataSize-2) * 4 +2);// 第一个2 是前两个未压缩数据，*4 是1个字节解压为4个字节（2个16位数字），+2是加上未压缩数据
+		//特殊注释，将这两个作为未压缩数据 进行解压，也能够正常播报
+//		this.setDataChunkSize((dataSize-2) * 4 +2);// 第一个2 是前两个未压缩数据，*4 是1个字节解压为4个字节（2个16位数字），+2是加上未压缩数据
+		//特殊注释，end
+		this.setDataChunkSize(dataSize * 4);
 		this.setChunkSize(this.getDataChunkSize() + 36);
 	}
 
