@@ -145,8 +145,8 @@ public class Header {
 	Size	0x04		4Byte	小端	子块大小
 	Data	0x08		4Byte	小端	子块数据大小*/
 	private String factChunkID = "fact";// “fact”字符串
-	private int factChunkSize = 2;//
-	private int factChunkSampleLength = 505; // 数据转换为PCM格式后的大小;解压后的音频数据的大小(B)。
+	private int factChunkSize = 4;//
+	private int factChunkSampleLength = 505; // 
 	// the "fact" sub-chunk END
 	
 	// the "data" sub-chunk START
@@ -184,14 +184,27 @@ public class Header {
 	 * @param format : ADPCM PCM
 	 * @return 
 	 */
-	public byte[] writeHeard(FileOutputStream fos,long length,String format) {
+	public byte[] writeHeard(long length,String format) {
 		int dataSize;
-		if("ADPCM".equals(format)){
-			dataSize = (int) ((length - 44) / 1010 * 256);
-			if ((length - 44) % 1010 != 0) {
-				dataSize += ((length - 44) % 1010 - 2) / 4 + 4;
+		if("ADPCM".equals(format)){// length 是采样个数
+			/*
+			 * IMA-ADPCM head 格式说明 见附件说明
+			 * 一个block 默认为 256字节，存储505个采样（blockHead中的一个未压缩采样 和 blockData 中的 504个采样），一个采样 4Bit
+			 */
+			int blockHeadNum = (int) (length/505);
+			if(length % 505 != 0){ // 存在不足一个block的情况
+				blockHeadNum += 1;
 			}
-			intAdpcm(dataSize);
+			/*
+			 * blockHeadNum * 4 : blockHead的数据长度,且存储一个未压缩的采样数据
+			 * (length -blockHeadNum)/2 : 除去blockHead中的采样个数 ，/2: 剩余的采样数据的编码后的数据长度(1字节存储2个采样)
+			 */
+			dataSize = (int) (blockHeadNum * 4 + (length -blockHeadNum)/2);
+			if((length -blockHeadNum)%2 != 0){// 存在剩余的采样个数 是 奇数的情况
+				dataSize += 1;
+			}
+			// 初始化待计算的数据
+			intAdpcm(dataSize,length);
 		}else{
 			/*long nBlock = length / 256;
 			//为了数据存储对齐，方便处理，一般一个音频BLOCK的大小是16的整数倍；
@@ -201,38 +214,21 @@ public class Header {
 			if (otherBytes != 0) {
 				dataSize +=(otherBytes-4)*2+1;
 			}*/
+			/*
+			 * IMA-ADPCM head 格式说明 见附件说明
+			 */
 			dataSize = (int) length;
 			intPcm(dataSize);
 		}
-	       
-       /*riff = new RIFF();
-       format = new FORMAT("ADPCM");
-       data = new DATA();
-       fact = new FACT();
-       fact.setFACTSampleLength(dataSize);
-       data.setDATASize(dataSize);
-       riff.setRIFFSize(dataSize + 58);*/
 		ByteArrayOutputStream bos = new ByteArrayOutputStream();
        try {
     	   
            //写入RIFF块
-           /*fos.write(this.getChunkID().getBytes());
-           fos.write(HexByteLittleEndian(this.getChunkSize(),4));
-           fos.write(this.getFormat().getBytes());*/
            bos.write(this.getChunkID().getBytes());
            bos.write(HexByteLittleEndian(this.getChunkSize(),4));
            bos.write(this.getFormat().getBytes());
 
            //写入‘fmt ’块
-           /*fos.write(this.getFormatChunkID().getBytes());
-           fos.write(HexByteLittleEndian(this.getFormatChunkSize(),2));
-           fos.write(HexByteLittleEndian(this.getFormatAudioFormat(),2));
-           fos.write(HexByteLittleEndian(this.getFormatNumChannels(),2));
-           fos.write(HexByteLittleEndian(this.getFormatSampleRate(),4));
-           fos.write(HexByteLittleEndian(this.getFormatBbyteRate(),4));
-           fos.write(HexByteLittleEndian(this.getFormatBlockAlign(),2));
-           fos.write(HexByteLittleEndian(this.getFormatBitsPerSample(),2));*/
-
            bos.write(this.getFormatChunkID().getBytes());
            bos.write(HexByteLittleEndian(this.getFormatChunkSize(),4));
            bos.write(HexByteLittleEndian(this.getFormatAudioFormat(),2));
@@ -242,23 +238,16 @@ public class Header {
            bos.write(HexByteLittleEndian(this.getFormatBlockAlign(),2));
            bos.write(HexByteLittleEndian(this.getFormatBitsPerSample(),2));
            if("ADPCM".equals(format)){
-        	   /*fos.write(HexByteLittleEndian(this.getFormatCbSize(),2));
-        	   fos.write(HexByteLittleEndian(this.getFormatSamplesPerBlock(),2));*/
                bos.write(HexByteLittleEndian(this.getFormatCbSize(),2));
                bos.write(HexByteLittleEndian(this.getFormatSamplesPerBlock(),2));
         	   
         	   //写入FACT块
-        	   /*fos.write(this.getFactChunkID().getBytes());
-        	   fos.write(HexByteLittleEndian(this.getFactChunkSize(),4));
-        	   fos.write(HexByteLittleEndian(this.getFactChunkSampleLength(),4));*/
                bos.write(this.getFactChunkID().getBytes());
                bos.write(HexByteLittleEndian(this.getFactChunkSize(),4));
                bos.write(HexByteLittleEndian(this.getFactChunkSampleLength(),4));
            }
 
            //写入Data块
-           /*fos.write(this.getDataChunkID().getBytes());
-           fos.write(HexByteLittleEndian(this.getDataChunkSize(),4));*/
            bos.write(this.getDataChunkID().getBytes());
            bos.write(HexByteLittleEndian(this.getDataChunkSize(),4));
            
@@ -271,25 +260,24 @@ public class Header {
 	private void intPcm(int dataSize) {
 		this.setFormatChunkSize(16);
 		this.setFormatAudioFormat(1);//PCM =1
-		
 		this.setFormatBbyteRate(this.getFormatSampleRate() * this.getFormatNumChannels() * this.getFormatBitsPerSample() / 8);// = 16000;
 		this.setFormatBlockAlign(this.getFormatNumChannels() * this.getFormatBitsPerSample() / 8);// = 1;
 		this.setDataChunkSize(dataSize * 2);// 全部均为压缩数据。2 ：表示1个4位的ADPCM数据 解压后是1个16位的采样数据。即1个字节存储2个16位采样，则数据采样个数= dataSize字节*2
 		this.setChunkSize(this.getDataChunkSize() + 36);
 	}
 
-	private void intAdpcm(int dataSize) {
+	private void intAdpcm(int dataSize, long length) {
 		this.setFormatChunkSize(20);
 		this.setFormatAudioFormat(17);//IMA-ADPCM =17
 
-		this.setFormatBbyteRate(this.getFormatSampleRate() * this.getFormatNumChannels() * this.getFormatBitsPerSample() / 8);// = 16000;
-		this.setFormatBlockAlign(this.getFormatNumChannels() * this.getFormatBitsPerSample() / 8);// = 1;
-		this.setFormatCbSize(2); // 子块大小
+		this.setFormatBbyteRate(4055);// = 4055 不知道具体原因 ？？
+		this.setFormatBlockAlign(256);// = 256不知道具体原因？？
+		this.setFormatCbSize(2); // 扩展块的大小(format块中 此块后的属于扩展块)
 		this.setFormatSamplesPerBlock(505);
 		
-		this.setFactChunkSampleLength(dataSize);
-		this.setDataChunkSize(dataSize);
-		this.setChunkSize(dataSize + 58);
+		this.setFactChunkSampleLength((int) length);// 实际采样点的个数
+		this.setDataChunkSize(dataSize);// 编码后的数据字节数
+		this.setChunkSize(dataSize + 52);// 编码后的总文件长度 - 8(riff块的前两个数据)
 	}
 
 	/**
