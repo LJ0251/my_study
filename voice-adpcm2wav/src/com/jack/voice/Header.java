@@ -214,7 +214,7 @@ public class Header {
 			if (otherBytes != 0) {
 				dataSize +=(otherBytes-4)*2+1;
 			}*/
-			dataSize = (int) length;
+			dataSize = (int) length;//length 是数据长度
 			intPcm(dataSize);
 		}
 		ByteArrayOutputStream bos = new ByteArrayOutputStream();
