@@ -300,7 +300,7 @@ public class Adpcm {
 	}
 
 	/**
-	 * wave格式的 PCM 转换为 IMA-ADPCM
+	 * wave格式的 IMA-ADPCM 转换为 PCM
 	 * @param adpcmName 8000HZ 单通道 4bit		ADPCM  案例生成的是voiceData下的  wave_4bit_8k_mono.wav
 	 * @param pcmName 	8000HZ 单通道 16bit	PCM    案例使用的是voiceData下的  decode_16bit_8k_mono1.wav
 	 * @param path
@@ -350,81 +350,196 @@ public class Adpcm {
 
 	
 	private static void CoderRealize(FileOutputStream fos, byte[] inData, int len, BlockHeader blockheard) {
-	       try {
-	           int sign;
-	           int delta;
-	           int step;
-	           int valpred;
-	           int vpdiff;
-	           int diff;
-	           int index;
-	           boolean bufferstep;
-	           int outputbuffer = 0;
+		try {
+			int sign;
+			int delta;
+			int step;
+			int valpred;
+			int vpdiff;
+			int diff;
+			int index;
+			boolean bufferstep;
+			int outputbuffer = 0;
+			// 获取上一次的预测值(valpred)和step的索引值(index)
+			valpred = blockheard.getBLOCKPresample();
+			index = blockheard.getBLOCKIndex();
+			//根据上次的index(第一次为0)查表获取step
+			step = stepsizeTable[index];
+			bufferstep = true;
+			for (int i = 0; i < len / 2; i++) {
+				int val = (inData[i * 2] & 0xff) | inData[i * 2 + 1] << 8;
+				// step 1:求出 当前实际值(val) 与 上一次预测值(valPred)的偏差 diff
+				diff = val - valpred;
+				// 获取偏差的方向 8表示负向（1000） 0表示正向（0000），用于设置delta的方向
+				// 当 diff 小于0， delta bit3被置1。表示为负向偏差
+				sign = (diff < 0) ? 8 : 0;
+				if (sign != 0) {
+					diff = (-diff);
+				}
+				
+				/*
+				 * step 2:求出delta、vpdiff
+				 * 使用公式 1:
+				 * 		vpdiff = (delta + 0.5)*step/4
+				 * 			    = delta*step/4 + step/8
+				 * 				= delta*step/4 + step>>3
+				 * 公式2：
+				 * 		delta = diff * 4 / step
+				 */
+				//初始化 delta的范围为[0, 7]
+				delta = 0;
+				vpdiff = (step >> 3);
 
-	           valpred = blockheard.getBLOCKPresample();
-	           index = blockheard.getBLOCKIndex();
-	           step = stepsizeTable[index];
-	           bufferstep = true;
-	           for (int i = 0; i < len / 2; i++) {
-	               int val = (inData[i * 2] & 0xff) | inData[i * 2 + 1] << 8 ;
-	                   diff = val - valpred;
-	                   sign = (diff < 0) ? 8 : 0;
-	                   if (sign != 0) {
-	                       diff = (-diff);
-	                   }
-	                   delta = 0;
-	                   vpdiff = (step >> 3);
+				/**
+				 * 当diff >= step时 分析如下：
+				 *  第一行：delta = 4;解释如下
+				 * 	delta = diff * 4 / step  
+				 * 		  = (diff-step) * 4 /step + 4 //diff-step>0
+				 *  第二行：diff -= step;解释如下
+				 *  	重置diff的值，以便后面的进一步计算
+				 *  第三行：vpdiff += step;解释如下
+				 *  	公式1 与 公式2 联合起来
+				 *  	vpdiff = (delta + 0.5)*step/4
+				 * 			    = delta*step/4 + step/8
+				 * 				= delta*step/4 + step>>3
+				 * 				= (diff * 4 / step)*step/4 + step>>3
+				 *  			= diff + step>>3
+				 *  			= (diff-step) + step + step>>3
+				 *      当  (diff-step) 可以忽略为0时
+				 *      所以 vpdiff += step;
+				 *  经过以上步骤 细分的diff = diff-step;后面继续计算
+				 */
+				if (diff >= step) {
+					delta = 4;
+					diff -= step;
+					vpdiff += step;
+				}
+				/**
+				 * 将step >>= 1; 即： step = (int)(step / 2);
+				 * 此时，当diff >= step时  diff >= (step / 2)
+				 * 第一行：delta |= 2;解释如下
+				 * 		delta = diff * 4 / step
+				 *       	  = ((diff * 4)/2) / (step/2)
+				 *    delta*2 = diff * 4 / (step/2)
+				 *            = (diff-(step/2))*4 / (step/2) + 4
+				 *  delta*2-4 = (diff-(step/2))*4 / (step/2)
+				 *  	因此当右边的可忽略为0时：delta*2-4 = 0推出
+				 *  				delta = 4/2 = 2
+				 *  	即 delta += 2;
+				 *  第二行：diff -= step;解释如下
+				 *  	重置diff的值，以便后面的进一步计算
+				 *  第三行：vpdiff += step;解释如下
+				 *  	公式1 与 公式2 联合起来
+				 *  	vpdiff = diff + step>>3
+				 *             = (diff-(step/2)) + (step/2) + step>>3
+				 *      所以 vpdiff += (step/2); 因为step = (int)(step / 2);
+				 *      所以 vpdiff += step;
+				 */
+				step >>= 1;
+				if (diff >= step) {
+					//delta |= 2;
+					delta += 2;
+					diff -= step;
+					vpdiff += step;
+				}
+				/**
+				 * 继续将step >>= 1; 即：当前 step = step >>= 2; 则 step = (int)(step/4)
+				 * 此时，当diff >= step时  diff >= (step / 2)
+				 * 第一行：delta |= 2;解释如下
+				 * 		delta = diff * 4 / step
+				 *       	  = ((diff * 4)/4) / (step/4)
+				 *    delta*4 = diff * 4 / (step/4)
+				 *            = (diff-(step/4))*4 / (step/4) + 4
+				 *  delta*4-4 = (diff-(step/4))*4 / (step/4)
+				 *  	因此当右边的可忽略为0时：delta*4-4 = 0推出
+				 *  				delta = 4/4 = 1
+				 *  	即 delta += 1;
+				 *  第二行：diff -= step;解释如下
+				 *  	重置diff的值，以便后面的进一步计算
+				 *  第三行：vpdiff += step;解释如下
+				 *  	公式1 与 公式2 联合起来
+				 *  	vpdiff = diff + step>>3
+				 *             = (diff-(step/4)) + (step/4) + step>>3
+				 *      所以 vpdiff += (step/4); 因为step = (int)(step / 4);
+				 *      所以 vpdiff += step;
+				 *      
+				 *  此时，默认忽略diff-(step/4)的值，因为
+				 *  当diff的值是step的n倍(n>=2)时，例如2倍：即diff = 2*step
+				 *  	1、在第一次if (diff >= step) 时
+				 *  		diff -= step; 即 diff = 2*step -step = 1* step
+				 *  		delta = 4
+				 *  	2、在第二次if (diff >= step) 时，step >>=1 即 step= step/2
+				 *  		diff -= step; 即diff -= (step/2)
+				 *  		diff = 0.5*step;
+				 *          delta = 4 +2 = 6
+				 *      3、在第三次if (diff >= step) 时，又一次step >>=1 即 step= step/4
+				 *      	diff -= step; 即diff -= (step/4)
+				 *      	diff = 0.25*step;
+				 *          delta = 6 +1 = 7
+				 *      4、如果继续处理也是无法将diff消除为0的，且delta已经达到最大值 7。
+				 *   当diff的值是step的n倍(n<2)时，例如1.5倍：即diff = 1.9*step
+				 *      1、在第一次if (diff >= step) 时
+				 *  		diff -= step; 即 diff = 1.9*step -step = 0.9* step
+				 *  		delta = 4
+				 *  	2、在第二次if (diff >= step) 时，step >>=1 即 step= step/2
+				 *  		diff -= step; 即diff -= (step/2)
+				 *  		diff = 0.4*step;
+				 *          delta = 4 +2 = 6
+				 *      3、在第三次if (diff >= step) 时，又一次step >>=1 即 step= step/4
+				 *      	diff -= step; 即diff -= (step/4)
+				 *      	diff = 0.15*step;
+				 *          delta = 6 +1 = 7
+				 *      4、此时diff已经小于0.15*step可忽略，且delta已经达到最大值 7。
+				 */
+				step >>= 1;
+				if (diff >= step) {
+					//delta |= 1;
+					delta += 1;
+					vpdiff += step;
+				}
+				/**
+				 * step 3：将vpdiff的正负号加上，形成完整的vpdiff
+				 * step 4：求出新的预测valpred，即上次预测的valpred+vpdiff
+				 */
+				if (sign != 0)
+					valpred -= vpdiff;
+				else
+					valpred += vpdiff;
+				if (valpred > 32767)
+					valpred = 32767;
+				else if (valpred < -32768)
+					valpred = -32768;
+				/**
+				 * 量化后的值加上正负号
+				 */
+				delta |= sign;
 
-	                   if (diff >= step) {
-	                       delta = 4;
-	                       diff -= step;
-	                       vpdiff += step;
-	                   }
-	                   step >>= 1;
-	                   if (diff >= step) {
-	                       delta |= 2;
-	                       diff -= step;
-	                       vpdiff += step;
-	                   }
-	                   step >>= 1;
-	                   if (diff >= step) {
-	                       delta |= 1;
-	                       vpdiff += step;
-	                   }
-	                   if (sign != 0)
-	                       valpred -= vpdiff;
-	                   else
-	                       valpred += vpdiff;
-	                   if (valpred > 32767)
-	                       valpred = 32767;
-	                   else if (valpred < -32768)
-	                       valpred = -32768;
-	                   delta |= sign;
+				index += indexTable[delta];
+				if (index < 0)
+					index = 0;
+				if (index > 88)
+					index = 88;
+				step = stepsizeTable[index];
+				if (bufferstep) {
+					outputbuffer = delta & 0x0f;
+				} else {
+					fos.write((byte) ((delta << 4) & 0xf0) | outputbuffer);
+					// System.out.println("i:"+i);
+				}
+				bufferstep = !bufferstep;
+			}
+			if (!bufferstep) {
+				fos.write(outputbuffer & 0xff);
+				System.out.println("end");
+			}
+			blockheard.setBLOCKIndex(index);
+		} catch (IOException e) {
+			e.printStackTrace();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
 
-	                   index += indexTable[delta];
-	                   if (index < 0) index = 0;
-	                   if (index > 88) index = 88;
-	                   step = stepsizeTable[index];
-	                   if (bufferstep) {
-	                       outputbuffer = delta & 0x0f;
-	                   } else {
-	                       fos.write((byte) ((delta << 4) & 0xf0) | outputbuffer);
-	                       //System.out.println("i:"+i);
-	                   }
-	                   bufferstep = !bufferstep;
-	           }
-	           if (!bufferstep) {
-	               fos.write(outputbuffer & 0xff);
-	               System.out.println("end");
-	           }
-	           blockheard.setBLOCKIndex(index);
-	       } catch (IOException e) {
-	           e.printStackTrace();
-	       } catch (Exception e) {
-	           e.printStackTrace();
-	       }
-
-	   }
+	}
 	
 	private static void deCoderRealize(FileOutputStream fos, byte[] inData, int len, BlockHeader blockheard) {
 		int sign;
@@ -502,13 +617,13 @@ public class Adpcm {
 		//解码程序 Test START
 //		a.convertAdpcmToWav("win7_4bit_8k_mono.adpcm", "decode_16bit_8k_mono.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
 		//打开特殊注释的转换结果
-//		a.convertAdpcmToWav("win7_4bit_8k_mono.adpcm", "decode_16bit_8k_mono_1.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
+		a.convertAdpcmToWav("win7_4bit_8k_mono.adpcm", "decode_16bit_8k_mono_1.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
 		
-		a.convertWaveADPCMToPCM("wave_4bit_8k_mono.wav", "decode_16bit_8k_mono1.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
+//		a.convertWaveADPCMToPCM("wave_4bit_8k_mono.wav", "decode_16bit_8k_mono1.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
 		//解码程序 Test END
 		
 		//编码程序 Test START
-//		a.convertWavePCMToADPCM("win7_16bit_8k_mono.wav", "encode_4bit_8k_mono.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
+//		a.convertWavePCMToADPCM("win7_16bit_8k_mono.wav", "encode_4bit_8k_mono1.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
 		//编码程序 Test END
 	}
 	
