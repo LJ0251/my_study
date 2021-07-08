@@ -282,7 +282,7 @@ public class Adpcm {
 					break;
 				}
 				if (len != -1) {
-					CoderRealize(fos, inData, len, blockheard);
+					coderRealize(fos, inData, len, blockheard);
 				} else {
 					break;
 				}
@@ -349,7 +349,7 @@ public class Adpcm {
 	}
 
 	
-	private static void CoderRealize(FileOutputStream fos, byte[] inData, int len, BlockHeader blockheard) {
+	private static void coderRealize(FileOutputStream fos, byte[] inData, int len, BlockHeader blockheard) {
 		try {
 			int sign;
 			int delta;
@@ -368,10 +368,14 @@ public class Adpcm {
 			bufferstep = true;
 			for (int i = 0; i < len / 2; i++) {
 				int val = (inData[i * 2] & 0xff) | inData[i * 2 + 1] << 8;
-				// step 1:求出 当前实际值(val) 与 上一次预测值(valPred)的偏差 diff
+				/**
+				 *  step 1:求出 当前实际值(val) 与 上一次预测值(valPred)的偏差 diff
+				 */
 				diff = val - valpred;
-				// 获取偏差的方向 8表示负向（1000） 0表示正向（0000），用于设置delta的方向
-				// 当 diff 小于0， delta bit3被置1。表示为负向偏差
+				/**
+				 *  获取偏差的方向 8表示负向（1000） 0表示正向（0000），用于设置delta的方向
+				 *  当 diff 小于0， delta bit3被置1。表示为负向偏差
+				 */
 				sign = (diff < 0) ? 8 : 0;
 				if (sign != 0) {
 					diff = (-diff);
@@ -385,8 +389,8 @@ public class Adpcm {
 				 * 				= delta*step/4 + step>>3
 				 * 公式2：
 				 * 		delta = diff * 4 / step
+				 * 		初始化 delta的范围为[0, 7]
 				 */
-				//初始化 delta的范围为[0, 7]
 				delta = 0;
 				vpdiff = (step >> 3);
 
@@ -571,35 +575,85 @@ public class Adpcm {
 					j++;
 				}
 				bufferstep = !bufferstep;
+				/**
+				 * 根据量化后的值获取 步进的索引值
+				 * index 范围[0,88]
+				 */
 				index += indexTable[delta];
+				/**
+				 * 值域检查
+				 */
 				if (index < 0)
 					index = 0;
 				if (index > 88)
 					index = 88;
-				// 取符号位 &（与运算）都为1才为1
+				
+				/**
+				 * 取符号位 &（与运算）都为1才为1
+				 */
 				sign = delta & 8;// sing只会等于8或者0
-				// 取数据
+				// 取数据:除符合位以外的3位数据
 				delta = delta & 7;
 				// 下边四则运算将vpdiff = (delta+0.5)*step/4四则运算转换成了二进制的与或运算（牛逼）
+				/**
+				 * coderRealize的逆运算
+				 * 当(delta & 4) != 0时  ，即：delta >= 4 (不太清楚的可以自己算下这个与运算)
+				 * 	vpdiff = (delta + 0.5)*step/4
+				 *         = delta*step/4 + step/8
+				 *         = delta*step/4 + step>>3 (当delta >= 4时)
+				 *    一种变形 = (delta-4)*step/4 + step + step>>3 (当delta-4 小于1时可忽略(delta-4)*step/4)
+				 * 另外一种变形= step*(delta/4) + step>>3 
+				 * 		 约   = step + step>>3 
+				 *    则vpdiff += step;
+				 */
 				vpdiff = step >> 3;
 				if ((delta & 4) != 0) {
 					vpdiff += step;
 				}
+				/**
+				 * 当(delta & 2) != 0时  ，即：delta >= 2 (不太清楚的可以自己算下这个与运算)
+				 * 	vpdiff = (delta + 0.5)*step/4
+				 *         = delta*step/4 + step/8
+				 *         = delta*step/4 + step>>3 (当delta >= 4时)
+				 *         = step*(delta/4) + step>>3 
+				 *         约= step * 1/2 + step>>3 
+				 *    则vpdiff += step >> 1; 即 vpdiff += step/2;
+				 */
 				if ((delta & 2) != 0) {
 					vpdiff += step >> 1;
 				}
+				/**
+				 * 当(delta & 1) != 0时  ，即：delta >= 1 (不太清楚的可以自己算下这个与运算)
+				 * 	vpdiff = (delta + 0.5)*step/4
+				 *         = delta*step/4 + step/8
+				 *         = delta*step/4 + step>>3 (当delta >= 4时)
+				 *         = step*(delta/4) + step>>3 
+				 *         约= step * 1/4 + step>>3 
+				 *    则vpdiff += step >> 2; 即 vpdiff += step/4;
+				 */
 				if ((delta & 1) != 0) {
 					vpdiff += step >> 2;
 				}
+				
+				/**
+				 * 给vpdiff加上正负号，并计算预测值
+				 *
+				 */
 				if (sign != 0) {
 					valpred -= vpdiff;
 				} else {
 					valpred += vpdiff;
 				}
+				/**
+				 * 值域检查
+				 */
 				if (valpred > 32767)
 					valpred = 32767;
 				else if (valpred < -32768)
 					valpred = -32768;
+				/**
+				 * 获取下一个步差，下次循环使用
+				 */
 				step = stepsizeTable[index];
 				fos.write(Header.HexByteLittleEndian(valpred, 2));
 			} catch (IOException e) {
