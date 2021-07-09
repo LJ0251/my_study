@@ -8,12 +8,18 @@ import java.io.IOException;
 
 public class Adpcm {
 
-//	# table of  quantizer step size
+	/**
+	 * 量化器步长 表
+	 * 可以用于ADPCM 转 PCM 8bit
+	 */
 	int[] stepSizeTable = {16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41,
 	                 45, 50, 55, 60, 66, 73, 80, 88, 97, 107, 118, 130, 143, 157, 173,
 	                 190, 209, 230, 253, 279, 307, 337, 371, 408, 449, 494, 544, 598, 658,
-	                 724, 796, 876, 963, 1060, 1166, 1282, 1408, 1552};
-	// 另外的一个 stepsizeTable ，区别在哪？需要研究下
+	                 724, 796, 876, 963, 1060, 1166, 1282, 1411, 1552};
+	/**
+	 * 量化器步长 表
+	 * 可以用于ADPCM 转 PCM 16 bit
+	 */
 	private static int[] stepsizeTable = {
 	           7, 8, 9, 10, 11, 12, 13, 14, 16, 17,
 	           19, 21, 23, 25, 28, 31, 34, 37, 41, 45,
@@ -104,18 +110,24 @@ public class Adpcm {
 	    return (byte)(code & 0x0f);//返回低4位字节的
 	}
 	
-//	# ADPCM_Decode.
-//	# code: a byte containing a 4-bit ADPCM sample.
-//	# retval : 16-bit ADPCM sample
-	int de_index = 0;
-	int de_predsample = 0;
+
 	
 	/**
 	 * ADPCM 解码   4Bit --> 16Bit
+	 * 特点：
+	 * 		1、支持8bit\16bit PCM的生成
+	 * 		2、使用 stepSizeTable 是  stepsizeTable中的16~1552部分数据
+	 * 		3、如果是16bit PCM,则是忽略掉低4位和高4位数据的值；即低4位和高4位数据均为0
+	 * 		4、如果是8bit PCM ,取返回值的 中间8位的数据作为一个采样数据：即 0000 1011 1101 0000，只取 1011 1101
 	 * @param code 1byte(包括一个4bit的ADPCM采样数据)
 	 * @return short(一个16bit的PCM采样数据)
 	 */
-	public short ADPCM_Decode(int code){
+	public short ADPCM_Decode(int code, BlockHeader blockheard){
+//		# ADPCM_Decode.
+//		# code: a byte containing a 4-bit ADPCM sample.
+//		# retval : 16-bit ADPCM sample
+		int de_index = blockheard.getBLOCKIndex();
+		int de_predsample = blockheard.getBLOCKPresample();
 	    int step_size = stepSizeTable[de_index];
 
 //	    # inverse code into diff
@@ -156,14 +168,78 @@ public class Adpcm {
 	    if (de_index > 48){
 	        de_index = 48;
 	    }
+	    
+	    blockheard.setBLOCKIndex(de_index);
+		blockheard.setBLOCKPresample(de_predsample);
+	    
 //	    # save predict sample and de_index for next iteration
 //	    # return new decoded sample
 //	    # The original algorithm turned out to be 12bit, need to convert to 16bit
 	    return (short)(de_predsample << 4);
 	}
+	
 	/**
 	 * 
-	 * ADPCM 转换为  WAV: vox(ADPCM,没有Header的音频数据) to wav(PCM)
+	 * ADPCM(纯压缩数据，非wave规范) 转换为  WAV: vox(ADPCM,没有Header的音频数据) to wav(PCM)
+	 * @param voxName 8000HZ 单通道 4bit	ADPCM  案例使用的是voiceData下的 win7_4bit_8k_mono.adpcm
+	 * @param wavName 8000HZ 单通道 8bit	PCM    案例生成的是voiceData下的decode_8bit_8k_mono.wav
+	 * @param path
+	 * @param endian True : big-endian（暂时不可以用）  false : little-endian
+	 */
+	public void convertAdpcmToWav8Bit(String voxName,String wavName,String path, boolean isBigEndian){
+		File in = new File(path+voxName);
+		File out = new File(path+wavName);
+		try {
+			FileInputStream fis = new FileInputStream(in);
+			if(!out.exists()){
+            	out.createNewFile();
+            }
+            FileOutputStream fos = new FileOutputStream(out);
+            int length =fis.available();
+            Header header = new Header(1, 8000, 8); 
+            byte[] head = header.writeHeard(length,"PCM8");
+            assert head.length == 44;
+            fos.write(head);
+			int len = fis.available();
+			byte[] list_8bit_bytes = new byte[len];
+            int rLen = fis.read(list_8bit_bytes, 0, len);
+            fis.close();
+            BlockHeader blockheard = new BlockHeader();
+			// 设置默认的index和rsv
+			blockheard.setBLOCKIndex(0);
+			blockheard.setBLOCKRSV(0);
+			blockheard.setBLOCKPresample(0);
+            for(int i=0;i<len;i++){
+                byte byte_i = list_8bit_bytes[i];  //# 1 bytes = 8bit
+                int high_4bit = (byte_i & 0xf0) >> 4; // # split high 4bit from 8bit
+            	int low_4bit = byte_i & 0x0f; // # split low 4bit from 8bit
+                //now decode
+                short tmpDeS16_0 = ADPCM_Decode(high_4bit, blockheard);
+                short tmpDeS16_1 = ADPCM_Decode(low_4bit, blockheard);
+                if(isBigEndian){
+                	fos.write(Header.HexByteBigEndian(tmpDeS16_0,2));
+                	fos.write(Header.HexByteBigEndian(tmpDeS16_1,2));
+                }else{
+                	tmpDeS16_0 >>= 8;// 将16位(高4位本来就是0)的采样 1、还原为原始计算的12bit(右移4bit)。2、损失低4位(再右移4bit) 
+	    			byte b80 = (byte) (tmpDeS16_0 + 0x80);// 将剩余的中间8bit数据的采样加上128(转换为8位有符号数字)，并损失掉高4位。
+	    			tmpDeS16_1 >>= 8;
+	    			byte b81 = (byte) (tmpDeS16_1 + 0x80);
+                	fos.write(b80);
+                    fos.write(b81);
+                }
+            }
+            fos.close();
+		} catch (FileNotFoundException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	
+	}
+	
+	/**
+	 * 
+	 * ADPCM(纯压缩数据，非wave规范) 转换为  WAV: vox(ADPCM,没有Header的音频数据) to wav(PCM)
 	 * @param voxName 8000HZ 单通道 4bit	ADPCM  案例使用的是voiceData下的 win7_4bit_8k_mono.adpcm
 	 * @param wavName 8000HZ 单通道 16bit	PCM    案例生成的是voiceData下的decode_16bit_8k_mono.wav
 	 * @param path
@@ -197,13 +273,18 @@ public class Adpcm {
 //            fos.write(list_8bit_bytes[0]);
 //            for(int i=2;i<len;i++){
             //特殊注释，end
+            BlockHeader blockheard = new BlockHeader();
+			// 设置默认的index和rsv
+			blockheard.setBLOCKIndex(0);
+			blockheard.setBLOCKRSV(0);
+			blockheard.setBLOCKPresample(0);
             for(int i=0;i<len;i++){
                 byte byte_i = list_8bit_bytes[i];  //# 1 bytes = 8bit
                 int high_4bit = (byte_i & 0xf0) >> 4; // # split high 4bit from 8bit
             	int low_4bit = byte_i & 0x0f; // # split low 4bit from 8bit
                 //now decode
-                short tmpDeS16_0 = ADPCM_Decode(high_4bit);
-                short tmpDeS16_1 = ADPCM_Decode(low_4bit);
+                short tmpDeS16_0 = ADPCM_Decode(high_4bit, blockheard);
+                short tmpDeS16_1 = ADPCM_Decode(low_4bit, blockheard);
                 if(isBigEndian){
                 	fos.write(Header.HexByteBigEndian(tmpDeS16_0,2));
                 	fos.write(Header.HexByteBigEndian(tmpDeS16_1,2));
@@ -348,7 +429,16 @@ public class Adpcm {
 		}
 	}
 
-	
+	/**
+	 * PCM 编码   16Bit --> 4Bit
+	 * 特点：
+	 * 		1、使用全量的步差表stepsizeTable
+	 * 		2、16bit数据均有值，没有失真
+	 * @param fos 输出流
+	 * @param inData ADPCM 采样数据
+	 * @param len 包含采样个数
+	 * @param blockheard 块的头部信息
+	 */
 	private static void coderRealize(FileOutputStream fos, byte[] inData, int len, BlockHeader blockheard) {
 		try {
 			int sign;
@@ -545,6 +635,16 @@ public class Adpcm {
 
 	}
 	
+	/**
+	 * ADPCM 解码   4Bit --> 16Bit
+	 * 特点：
+	 * 		1、使用全量的步差表stepsizeTable
+	 * 		2、16bit数据均有值，没有失真
+	 * @param fos 输出流
+	 * @param inData ADPCM 采样数据
+	 * @param len 包含采样个数
+	 * @param blockheard 块的头部信息
+	 */
 	private static void deCoderRealize(FileOutputStream fos, byte[] inData, int len, BlockHeader blockheard) {
 		int sign;
 		int delta;
@@ -668,11 +768,14 @@ public class Adpcm {
 	 */
 	public static void main(String[] args) {
 		Adpcm a = new Adpcm();
+		// 使用 index范围为[0,48] 的 stepSizeTable
 		//解码程序 Test START
-//		a.convertAdpcmToWav("win7_4bit_8k_mono.adpcm", "decode_16bit_8k_mono.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
+		a.convertAdpcmToWav("win7_4bit_8k_mono.adpcm", "decode_16bit_8k_mono.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
 		//打开特殊注释的转换结果
-		a.convertAdpcmToWav("win7_4bit_8k_mono.adpcm", "decode_16bit_8k_mono_1.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
+//		a.convertAdpcmToWav("win7_4bit_8k_mono.adpcm", "decode_16bit_8k_mono_1.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
+		a.convertAdpcmToWav8Bit("win7_4bit_8k_mono.adpcm", "decode_8bit_8k_mono.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
 		
+		// 使用 index范围为[0,88] 的 stepSizeTable
 //		a.convertWaveADPCMToPCM("wave_4bit_8k_mono.wav", "decode_16bit_8k_mono1.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
 		//解码程序 Test END
 		

@@ -205,7 +205,7 @@ public class Header {
 			}
 			// 初始化待计算的数据
 			intAdpcm(dataSize,length);
-		}else{
+		}else if("PCM".equals(format)){
 			/*long nBlock = length / 256;
 			//为了数据存储对齐，方便处理，一般一个音频BLOCK的大小是16的整数倍；
 			//如果设置BLOCK大小为256Byte,减去数据块头长度4字节，还剩252字节，4bit表示一个采样的话，可存储共252x(8/4)+1=505个采样点（加上数据头里的一个采样值）。
@@ -216,6 +216,17 @@ public class Header {
 			}*/
 			dataSize = (int) length;//length 是数据长度
 			intPcm(dataSize);
+		}else{
+			/*long nBlock = length / 256;
+			//为了数据存储对齐，方便处理，一般一个音频BLOCK的大小是16的整数倍；
+			//如果设置BLOCK大小为256Byte,减去数据块头长度4字节，还剩252字节，4bit表示一个采样的话，可存储共252x(8/4)+1=505个采样点（加上数据头里的一个采样值）。
+			dataSize=(int) (nBlock*505);
+			long otherBytes = length % 256;
+			if (otherBytes != 0) {
+				dataSize +=(otherBytes-4)*2+1;
+			}*/
+			dataSize = (int) length;//length 是数据长度
+			intPcm8(dataSize);
 		}
 		ByteArrayOutputStream bos = new ByteArrayOutputStream();
        try {
@@ -263,6 +274,15 @@ public class Header {
 //		this.setDataChunkSize((dataSize-2) * 4 +2);// 第一个2 是前两个未压缩数据，*4 是1个字节解压为4个字节（2个16位数字），+2是加上未压缩数据
 		//特殊注释，end
 		this.setDataChunkSize(dataSize * 4);
+		this.setChunkSize(this.getDataChunkSize() + 36);
+	}
+	
+	private void intPcm8(int dataSize) {
+		this.setFormatChunkSize(16);
+		this.setFormatAudioFormat(1);//PCM =1
+		this.setFormatBbyteRate(this.getFormatSampleRate() * this.getFormatNumChannels() * this.getFormatBitsPerSample() / 8);// = 16000;
+		this.setFormatBlockAlign(this.getFormatNumChannels() * this.getFormatBitsPerSample() / 8);// = 1;
+		this.setDataChunkSize(dataSize * 2);// 一个采样由 4bit 转换为    8bit
 		this.setChunkSize(this.getDataChunkSize() + 36);
 	}
 
