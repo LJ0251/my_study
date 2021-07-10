@@ -33,92 +33,14 @@ public class Adpcm {
 	
 //	# table of index
 	private static int[] indexTable = {-1, -1, -1, -1, 2, 4, 6, 8, -1, -1, -1, -1, 2, 4, 6, 8};
-//	# ADPCM_Encode.
-//	# sample: a 16-bit PCM sample
-//	# retval : a 4-bit ADPCM sample
-	int predsample = 0;
-	int index = 0;
 	
 	/**
-	 * ADPCM 编码	
-	 * 翻译c语言的实现，这部分没有验证过
-	 * @param sample
-	 * @return
-	 */
-	public byte ADPCM_Encode(int sample){
-	    int code = 0;
-	    int step_size = stepSizeTable[index];
-
-//	    # compute diff and record sign and absolut value
-	    int diff = sample - predsample;
-	    if (diff < 0){
-	    	code = 8;
-	    	diff = -diff;
-	    }
-	        
-//	    # quantize the diff into ADPCM code
-//	    # inverse quantize the code into a predicted diff
-	    int tmpstep = step_size;
-	    int diffq = step_size >> 3;
-
-	    if (diff >= tmpstep){
-	    	code = code | 0x04;
-	    	diff -= tmpstep;
-	    	diffq = diffq + step_size;
-	    }
-
-	    tmpstep = tmpstep >> 1;
-
-	    if (diff >= tmpstep){
-	    	code = code | 0x02;
-	    	diff = diff - tmpstep;
-	    	diffq = diffq + (step_size >> 1);
-	    }
-
-	    tmpstep = tmpstep >> 1;
-
-	    if (diff >= tmpstep){
-	    	code = code | 0x01;
-	    	diffq = diffq + (step_size >> 2);
-	    }
-
-//	    # fixed predictor to get new predicted sample
-	    if ((code & 8)!=0){
-	    	predsample = predsample - diffq;
-	    } else {
-	    	predsample = predsample + diffq;
-	    }
-	        
-//	    # check for overflow
-	    if (predsample > 32767){
-	    	predsample = 32767;
-	    }else if(predsample < -32768){
-	    	predsample = -32768;
-	    }	        
-
-//	    # find new stepsize index
-	    index += indexTable[code];
-
-//	    # check for overflow
-	    if (index < 0)
-	        index = 0;
-
-	    if (index > 48)
-	        index = 48;
-
-//	    # return new ADPCM code   code & 0x0f == code
-	    return (byte)(code & 0x0f);//返回低4位字节的
-	}
-	
-
-	
-	/**
-	 * ADPCM 解码   4Bit --> 16Bit
+	 * ADPCM 解码   4Bit --> 8bit\16bit
 	 * 特点：
 	 * 		1、支持8bit\16bit PCM的生成
 	 * 		2、使用 stepSizeTable 是  stepsizeTable中的16~1552部分数据
-	 * 		3、如果是16bit PCM,则是忽略掉低4位和高4位数据的值；即低4位和高4位数据均为0
-	 * 		4、如果是8bit PCM ,取返回值的 中间8位的数据作为一个采样数据：即 0000 1011 1101 0000，只取 1011 1101
+	 * 		3、如果需要16bit PCM,则是忽略掉低4位和高4位数据的值；即低4位和高4位数据均为0；注该方法存在损失。不如使用stepsizeTable的还原度高
+	 * 		4、如果需要8bit PCM ,取返回值的 中间8位的数据作为一个采样数据：即 0000 1011 1101 0000，只取 1011 1101
 	 * @param code 1byte(包括一个4bit的ADPCM采样数据)
 	 * @return short(一个16bit的PCM采样数据)
 	 */
@@ -770,10 +692,10 @@ public class Adpcm {
 		Adpcm a = new Adpcm();
 		// 使用 index范围为[0,48] 的 stepSizeTable
 		//解码程序 Test START
-		a.convertAdpcmToWav("win7_4bit_8k_mono.adpcm", "decode_16bit_8k_mono.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
+//		a.convertAdpcmToWav("win7_4bit_8k_mono.adpcm", "decode_16bit_8k_mono.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
 		//打开特殊注释的转换结果
 //		a.convertAdpcmToWav("win7_4bit_8k_mono.adpcm", "decode_16bit_8k_mono_1.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
-		a.convertAdpcmToWav8Bit("win7_4bit_8k_mono.adpcm", "decode_8bit_8k_mono.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
+//		a.convertAdpcmToWav8Bit("win7_4bit_8k_mono.adpcm", "decode_8bit_8k_mono.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
 		
 		// 使用 index范围为[0,88] 的 stepSizeTable
 //		a.convertWaveADPCMToPCM("wave_4bit_8k_mono.wav", "decode_16bit_8k_mono1.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
