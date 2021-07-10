@@ -265,6 +265,91 @@ public class Header {
        return bos.toByteArray();
 	}
 
+	/**
+	 * 编辑并输出wave文件的头信息
+	 * @param sampleNum 音频的采样个数
+	 * @param inSampleBit 输入的采样存储位数
+	 * @param outSampleBit 输出的采样存储位数
+	 * @param isAdpcm 是否为ADPCM格式的Heade
+	 * @return 包含heade的字节数组
+	 */
+	public byte[] writeHeard(long sampleNum, int inSampleBit, int outSampleBit, boolean isAdpcm) {
+		int dataSize;
+		if(isAdpcm){
+			/*
+			 * IMA-ADPCM head 格式说明 见附件说明
+			 * 一个block 默认为 256字节，存储505个采样（blockHead中的一个未压缩采样 和 blockData 中的 504个采样），一个采样 4Bit
+			 */
+			int blockHeadNum = (int) (sampleNum/505);
+			if(sampleNum % 505 != 0){ // 存在不足一个block的情况
+				blockHeadNum += 1;
+			}
+			/*
+			 * blockHeadNum * 4 : blockHead的数据长度,且存储一个未压缩的采样数据
+			 * (length -blockHeadNum)/2 : 除去blockHead中的采样个数 ，/2: 剩余的采样数据的编码后的数据长度(1字节存储2个采样)
+			 */
+			dataSize = (int) (blockHeadNum * 4 + (sampleNum -blockHeadNum)/2);
+			if((sampleNum -blockHeadNum)%2 != 0){// 存在剩余的采样个数 是 奇数的情况
+				dataSize += 1;
+			}
+			// 初始化待计算的数据
+			intAdpcm(dataSize,sampleNum);
+		} else {
+			
+			dataSize = (int) sampleNum * outSampleBit / 8 ;
+			intPcm(dataSize,0);
+		}
+		ByteArrayOutputStream bos = new ByteArrayOutputStream();
+       try {
+    	   
+           //写入RIFF块
+           bos.write(this.getChunkID().getBytes());
+           bos.write(HexByteLittleEndian(this.getChunkSize(),4));
+           bos.write(this.getFormat().getBytes());
+
+           //写入‘fmt ’块
+           bos.write(this.getFormatChunkID().getBytes());
+           bos.write(HexByteLittleEndian(this.getFormatChunkSize(),4));
+           bos.write(HexByteLittleEndian(this.getFormatAudioFormat(),2));
+           bos.write(HexByteLittleEndian(this.getFormatNumChannels(),2));
+           bos.write(HexByteLittleEndian(this.getFormatSampleRate(),4));
+           bos.write(HexByteLittleEndian(this.getFormatBbyteRate(),4));
+           bos.write(HexByteLittleEndian(this.getFormatBlockAlign(),2));
+           bos.write(HexByteLittleEndian(this.getFormatBitsPerSample(),2));
+           if(isAdpcm){
+               bos.write(HexByteLittleEndian(this.getFormatCbSize(),2));
+               bos.write(HexByteLittleEndian(this.getFormatSamplesPerBlock(),2));
+        	   
+        	   //写入FACT块
+               bos.write(this.getFactChunkID().getBytes());
+               bos.write(HexByteLittleEndian(this.getFactChunkSize(),4));
+               bos.write(HexByteLittleEndian(this.getFactChunkSampleLength(),4));
+           }
+
+           //写入Data块
+           bos.write(this.getDataChunkID().getBytes());
+           bos.write(HexByteLittleEndian(this.getDataChunkSize(),4));
+           
+       } catch (IOException e) {
+           e.printStackTrace();
+       }
+       return bos.toByteArray();
+	}
+
+	/**
+	 * 计算PCM的heade数据
+	 * @param dataSize
+	 * @param compressionRate
+	 */
+	private void intPcm(int dataSize,int compressionRate) {
+		this.setFormatChunkSize(16);
+		this.setFormatAudioFormat(1);//PCM =1
+		this.setFormatBbyteRate(this.getFormatSampleRate() * this.getFormatNumChannels() * this.getFormatBitsPerSample() / 8);// = 16000;
+		this.setFormatBlockAlign(this.getFormatNumChannels() * this.getFormatBitsPerSample() / 8);// = 1;
+		this.setDataChunkSize(dataSize);// 一个采样由 4bit 转换为   Xbit
+		this.setChunkSize(this.getDataChunkSize() + 36);
+	}
+	
 	private void intPcm(int dataSize) {
 		this.setFormatChunkSize(16);
 		this.setFormatAudioFormat(1);//PCM =1
@@ -273,7 +358,7 @@ public class Header {
 		//特殊注释，将这两个作为未压缩数据 进行解压，也能够正常播报
 //		this.setDataChunkSize((dataSize-2) * 4 +2);// 第一个2 是前两个未压缩数据，*4 是1个字节解压为4个字节（2个16位数字），+2是加上未压缩数据
 		//特殊注释，end
-		this.setDataChunkSize(dataSize * 4);
+		this.setDataChunkSize(dataSize * 4);// 一个采样由 4bit 转换为    16bit
 		this.setChunkSize(this.getDataChunkSize() + 36);
 	}
 	
@@ -286,7 +371,12 @@ public class Header {
 		this.setChunkSize(this.getDataChunkSize() + 36);
 	}
 
-	private void intAdpcm(int dataSize, long length) {
+	/**
+	 * 计算ADPCM的heade数据
+	 * @param dataSize ADPCM的数据长度
+	 * @param sampleNum 采样个数
+	 */
+	private void intAdpcm(int dataSize, long sampleNum) {
 		this.setFormatChunkSize(20);
 		this.setFormatAudioFormat(17);//IMA-ADPCM =17
 
@@ -295,7 +385,7 @@ public class Header {
 		this.setFormatCbSize(2); // 扩展块的大小(format块中 此块后的属于扩展块)
 		this.setFormatSamplesPerBlock(505);
 		
-		this.setFactChunkSampleLength((int) length);// 实际采样点的个数
+		this.setFactChunkSampleLength((int) sampleNum);// 实际采样点的个数
 		this.setDataChunkSize(dataSize);// 编码后的数据字节数
 		this.setChunkSize(dataSize + 52);// 编码后的总文件长度 - 8(riff块的前两个数据)
 	}

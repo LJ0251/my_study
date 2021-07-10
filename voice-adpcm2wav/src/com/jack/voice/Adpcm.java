@@ -119,7 +119,8 @@ public class Adpcm {
             FileOutputStream fos = new FileOutputStream(out);
             int length =fis.available();
             Header header = new Header(1, 8000, 8); 
-            byte[] head = header.writeHeard(length,"PCM8");
+//            byte[] head = header.writeHeard(length,"PCM8");
+			byte[] head = header.writeHeard(length * 2, 4, 8, false);
             assert head.length == 44;
             fos.write(head);
 			int len = fis.available();
@@ -178,7 +179,8 @@ public class Adpcm {
             FileOutputStream fos = new FileOutputStream(out);
             int length =fis.available();
             Header header = new Header(1, 8000, 16); 
-            byte[] head = header.writeHeard(length,"PCM");
+            //byte[] head = header.writeHeard(length,"PCM");
+			byte[] head = header.writeHeard(length * 2, 4, 16, false);
             assert head.length == 44;
             fos.write(head);
 			int len = fis.available();
@@ -243,7 +245,8 @@ public class Adpcm {
 			long length = in.length();
 			long sampleNum = (long) Math.ceil((length-44)/2);
 			Header header = new Header(1, 8000, 4);
-			byte[] head = header.writeHeard(sampleNum, "ADPCM");
+			//byte[] head = header.writeHeard(sampleNum, "ADPCM");
+			byte[] head = header.writeHeard(sampleNum, 4, 4, true);
 			assert head.length == 60;
 			fos.write(head);
 			BlockHeader blockheard = new BlockHeader();
@@ -319,30 +322,57 @@ public class Adpcm {
 			}
 			FileOutputStream fos = new FileOutputStream(out);
 			long length = in.length();
-			long nBlock = length / 256;
-			long sampleNum = nBlock * 505;//每个block块包含505个采样
-			long otherBytes = length % 256;
+			long blockNum = (length-60) / 256;
+			long sampleNum = blockNum * 505;//每个block块包含505个采样
+			long otherBytes = (length-60) % 256;
 			if (otherBytes != 0) {
+				blockNum += 1;
 				sampleNum += (otherBytes - 4) * 2 + 1;
 			}
 			//long sampleNum = (long) Math.ceil((length - 44) / 2);
 			Header header = new Header(1, 8000, 16);
 			//byte[] head = header.writeHeard(sampleNum, "PCM");
-			byte[] head = header.writeHeard((long) Math.ceil(sampleNum / 2), "PCM");
+			//byte[] head = header.writeHeard((long) Math.ceil(sampleNum / 2), "PCM");
+			byte[] head = header.writeHeard(sampleNum, 4, 16, false);
 			assert head.length == 60;
 			fos.write(head);
 			// 根据长度信息 组织 目标文件的 头信息
 			BlockHeader blockheard = new BlockHeader();
-			byte[] inData = new byte[1024];
+			byte[] inData = new byte[252];
+			byte[] headBytes = new byte[4];
 			// 丢掉 WAVE IMA-ADPCM 的 头信息
 			fis.read(inData, 0, 60);
 			int len;
-			while ((len = fis.read(inData, 0, 256)) != -1) {
-				blockheard.setBLOCKPresample(inData[0] | inData[1] << 8);
-				blockheard.setBLOCKIndex((int) inData[2]);
-				blockheard.setBLOCKRSV((int) inData[3]);
+			int currentBlockIndex = 1;
+			while (currentBlockIndex <= blockNum) {
+				// 组织header 数据 START
+				len = fis.read(headBytes);// 每个ADPCM 块开头的一个未压缩数据
+				blockheard.setBLOCKPresample(headBytes[0] | headBytes[1] << 8);
+				blockheard.setBLOCKIndex((int) headBytes[2]);
+				blockheard.setBLOCKRSV((int) headBytes[3]);
+				// blockheard 的 4 bytes()
 				fos.write(Header.HexByteLittleEndian(blockheard.getBLOCKPresample(), 2));
-				deCoderRealize(fos, inData, len, blockheard);
+				// blockheard 的 4 bytes()
+				// 组织header 数据 END
+
+				// blockData 的 252 bytes() START
+				if (currentBlockIndex < blockNum) {
+					len = fis.read(inData);// 压缩比为4:1，可转换为1008/4=252个字节
+				} else if (currentBlockIndex == blockNum && otherBytes > 4) {
+					inData = new byte[(int) (otherBytes - 4)];
+					len = fis.read(inData);// 读取长度需要减去 4字节的head数据
+				} else {
+					break;
+				}
+				if (len != -1) {
+					deCoderRealize(fos, inData, len, blockheard);
+				} else {
+					break;
+				}
+				// blockData 的 252 bytes() END
+
+				currentBlockIndex++;
+
 			}
 			fis.close();
 			fos.close();
@@ -575,7 +605,7 @@ public class Adpcm {
 		int vpdiff;
 		int index;
 		boolean bufferstep;
-		int j = 4;
+		int j = 0;
 		valpred = blockheard.getBLOCKPresample();
 		index = blockheard.getBLOCKIndex();
 		if (index < 0) {
@@ -586,7 +616,7 @@ public class Adpcm {
 		}
 		step = stepsizeTable[index];
 		bufferstep = true;
-		for (int i = 0; i < (len - 4) * 2; i++) {
+		for (int i = 0; i < len * 2; i++) {
 			try {
 				if (bufferstep) {
 					// 取低四位
@@ -702,7 +732,7 @@ public class Adpcm {
 		//解码程序 Test END
 		
 		//编码程序 Test START
-//		a.convertWavePCMToADPCM("win7_16bit_8k_mono.wav", "encode_4bit_8k_mono1.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
+		a.convertWavePCMToADPCM("win7_16bit_8k_mono.wav", "encode_4bit_8k_mono1.wav", "E:\\workSpace\\ADPCMVoice\\voice\\",false);
 		//编码程序 Test END
 	}
 	
